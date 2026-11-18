@@ -24,6 +24,48 @@ MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", 3))
 AUDIO_FORMATS = {"mp3", "m4a", "wav", "flac", "opus", "aac"}
 VIDEO_FORMATS = {"360", "480", "720", "1080", "1440", "2160", "best"}
 
+# Cookies de YouTube (para evitar "Sign in to confirm you're not a bot").
+# Opción A: archivo secreto en Render -> /etc/secrets/cookies.txt
+# Opción B: variable de entorno YT_COOKIES con el contenido del cookies.txt
+COOKIES_SRC = Path(os.environ.get("COOKIES_FILE", "/etc/secrets/cookies.txt"))
+COOKIES_RUNTIME = DOWNLOAD_DIR / ".cookies.txt"   # copia escribible (yt-dlp la actualiza)
+
+
+def setup_cookies() -> bool:
+    if os.environ.get("YT_COOKIES"):
+        COOKIES_RUNTIME.write_text(os.environ["YT_COOKIES"].replace("\\n", "\n"))
+        return True
+    if COOKIES_SRC.is_file():
+        COOKIES_RUNTIME.write_bytes(COOKIES_SRC.read_bytes())
+        return True
+    return False
+
+
+HAS_COOKIES = setup_cookies()
+print(f"[JG-Loader] cookies de YouTube: {'SÍ' if HAS_COOKIES else 'NO'}", flush=True)
+
+
+def base_opts() -> dict:
+    opts = {"noplaylist": True, "quiet": True, "no_warnings": True}
+    if HAS_COOKIES:
+        opts["cookiefile"] = str(COOKIES_RUNTIME)
+    return opts
+
+
+def friendly_error(e: Exception) -> str:
+    msg = str(e)
+    if "confirm you" in msg and "bot" in msg:
+        return ("YouTube bloqueó temporalmente al servidor (protección anti-bots). "
+                "Inténtalo de nuevo en unos minutos.")
+    if "Private video" in msg:
+        return "Este video es privado."
+    if "Video unavailable" in msg:
+        return "El video no está disponible."
+    if "age" in msg.lower() and "confirm" in msg.lower():
+        return "Este video tiene restricción de edad."
+    return msg.replace("ERROR: ", "")[:300]
+
+
 app = FastAPI(title="JG-Loader")
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
@@ -57,12 +99,12 @@ def safe_name(name: str) -> str:
 @app.post("/api/info")
 def info(req: InfoRequest):
     url = validate_url(req.url)
-    opts = {"quiet": True, "skip_download": True, "noplaylist": True}
+    opts = {**base_opts(), "skip_download": True}
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             data = ydl.extract_info(url, download=False)
     except Exception as e:
-        raise HTTPException(400, f"No se pudo obtener información: {str(e)[:300]}")
+        raise HTTPException(400, friendly_error(e))
     heights = sorted({f.get("height") for f in data.get("formats", []) if f.get("height")})
     return {
         "title": data.get("title"),
@@ -92,10 +134,8 @@ def build_opts(job_id: str, fmt: str) -> dict:
             job["progress"] = 92
 
     opts = {
+        **base_opts(),
         "outtmpl": out,
-        "noplaylist": True,
-        "quiet": True,
-        "no_warnings": True,
         "progress_hooks": [hook],
         "restrictfilenames": False,
     }
@@ -133,7 +173,7 @@ def run_job(job_id: str, url: str, fmt: str):
             job.update(status="done", progress=100, file=str(f), filename=f.name,
                        size=f.stat().st_size)
         except Exception as e:
-            job.update(status="error", error=str(e)[:300])
+            job.update(status="error", error=friendly_error(e))
 
 
 @app.post("/api/download")

@@ -33,6 +33,20 @@ docker run -p 8000:8000 jg-loader
 | `FILE_TTL_SECONDS` | `3600` | Tiempo antes de borrar los archivos |
 | `MAX_CONCURRENT` | `3` | Descargas simultáneas máximas |
 
+## Cookies de YouTube (necesario en servidores en la nube)
+
+YouTube bloquea las IPs de servidores (Render, Railway…) con el error
+*"Sign in to confirm you're not a bot"*. Para evitarlo, da a la app las cookies de una cuenta de YouTube:
+
+1. Usa una **cuenta secundaria** de Google (YouTube podría bloquearla).
+2. Abre una **ventana de incógnito**, inicia sesión en youtube.com y abre `https://www.youtube.com/robots.txt` en esa misma pestaña.
+3. Exporta las cookies en formato Netscape con la extensión **"Get cookies.txt LOCALLY"** y guárdalas como `cookies.txt`.
+4. **Cierra la ventana de incógnito sin cerrar sesión** (así YouTube no invalida esas cookies).
+5. En Render: *tu servicio → Environment → Secret Files → Add Secret File*, nombre `cookies.txt`, pega el contenido, guarda y vuelve a desplegar.
+
+La app lee `/etc/secrets/cookies.txt` (o la variable `COOKIES_FILE` / `YT_COOKIES`). En el log de arranque verás `cookies de YouTube: SÍ`.
+Las cookies caducan cada cierto tiempo: si vuelve el error, repite los pasos.
+
 ## API
 
 - `POST /api/info` `{url}` → título, miniatura, duración
