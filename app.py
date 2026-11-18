@@ -55,8 +55,11 @@ def base_opts() -> dict:
 def friendly_error(e: Exception) -> str:
     msg = str(e)
     if "confirm you" in msg and "bot" in msg:
-        return ("YouTube bloqueó temporalmente al servidor (protección anti-bots). "
-                "Inténtalo de nuevo en unos minutos.")
+        if HAS_COOKIES:
+            return ("YouTube bloqueó al servidor aunque tiene cookies: puede que hayan caducado "
+                    "o que YouTube rechace la IP del servidor. Revisa /api/status.")
+        return ("YouTube bloqueó al servidor (protección anti-bots). "
+                "Falta configurar las cookies de YouTube: revisa /api/status.")
     if "Private video" in msg:
         return "Este video es privado."
     if "Video unavailable" in msg:
@@ -94,6 +97,24 @@ def validate_url(url: str) -> str:
 def safe_name(name: str) -> str:
     name = re.sub(r'[\\/:*?"<>|\r\n]+', "", name).strip()
     return name[:150] or "download"
+
+
+@app.get("/api/status")
+def status():
+    import shutil
+    lines = 0
+    if HAS_COOKIES:
+        lines = sum(1 for l in COOKIES_RUNTIME.read_text(errors="ignore").splitlines()
+                    if l.strip() and not l.startswith("#") and "youtube.com" in l)
+    return {
+        "app": "JG-Loader",
+        "cookies_cargadas": HAS_COOKIES,
+        "cookies_de_youtube": lines,
+        "origen_cookies": "YT_COOKIES" if os.environ.get("YT_COOKIES") else str(COOKIES_SRC),
+        "yt_dlp": yt_dlp.version.__version__,
+        "deno": bool(shutil.which("deno")),
+        "ffmpeg": bool(shutil.which("ffmpeg")),
+    }
 
 
 @app.post("/api/info")
